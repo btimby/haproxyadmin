@@ -11,6 +11,7 @@ This module implements the main haproxyadmin API.
 """
 import os
 import glob
+import ipaddress
 
 from haproxyadmin.frontend import Frontend
 from haproxyadmin.backend import Backend
@@ -95,6 +96,7 @@ class HAProxy(object):
 
     def __init__(self, socket_dir=None,
                  socket_file=None,
+                 socket_addr=None,
                  retry=2,
                  retry_interval=2):
 
@@ -112,12 +114,17 @@ class HAProxy(object):
         elif (socket_file and is_unix_socket(socket_file) and
               connected_socket(socket_file)):
             socket_files.append(os.path.realpath(socket_file))
+        elif socket_addr:
+            socket_addr = ipaddress.ip_address(socket_addr)
+            socket_files.append(socket_addr)
         else:
-            raise ValueError("UNIX socket file was not set")
+            raise ValueError("UNIX / IP endpoint was not set")
 
         if not socket_files:
-            raise ValueError("No valid UNIX socket file was found, directory: "
-                             "{} file: {}".format(socket_dir, socket_file))
+            raise ValueError(
+                "No valid UNIX / IP endpoint was found, directory: "
+                "{} file: {} addr: {}".format(socket_dir, socket_file,
+                                              socket_addr))
 
         for so_file in socket_files:
             self._hap_processes.append(

@@ -16,6 +16,7 @@ import socket
 import errno
 import time
 import six
+import ipaddress
 
 from haproxyadmin.utils import (info2dict, stat2dict)
 from haproxyadmin.exceptions import (SocketTransportError, SocketTimeout,
@@ -28,16 +29,16 @@ class _HAProxyProcess(object):
     It acts as a communication pipe between the caller and individual
     HAProxy process using UNIX stats socket.
 
-    :param socket_file: Full path of socket file.
-    :type socket_file: string
+    :param address: Address or path of endpoint.
+    :type address: string
     :param retry: (optional) Number of connect retries (defaults to 3)
     :type retry: integer
     :param retry_interval: (optional) Interval time in seconds between retries
                            (defaults to 2)
     :type retry_interval: integer
     """
-    def __init__(self, socket_file, retry=3, retry_interval=2):
-        self.socket_file = socket_file
+    def __init__(self, address, retry=3, retry_interval=2):
+        self.address = address
         self.hap_stats = {}
         self.hap_info = {}
         self.retry = retry
@@ -71,30 +72,36 @@ class _HAProxyProcess(object):
             # any other value means retry N times
             attempt = self.retry + 1
         while attempt != 0:
+               
             try:
-                unix_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                # address could be a network address or path to a UNIX socket.
+                if isinstance(self.address, ipaddress._BaseAddress):
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                else:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
                 # I haven't seen a case where a running process which holds a
                 # UNIX socket will take more than few nanoseconds to accept a
                 # connection. But, I have seen cases where it takes ~0.5secs
                 # to get a respone from the socket. Thus I hard-code a timeout
                 # of 0.5ms
                 # TODO: consider having a configuration file for it
-                unix_socket.settimeout(0.5)
-                unix_socket.connect(self.socket_file)
-                unix_socket.send(six.b(command + '\n'))
-                file_handle = unix_socket.makefile()
+                sock.settimeout(0.5)
+                sock.connect(self.address)
+                sock.send(six.b(command + '\n'))
+                file_handle = sock.makefile()
                 data = file_handle.read().splitlines()
             except socket.timeout:
-                raised = SocketTimeout(socket_file=self.socket_file)
+                raised = SocketTimeout(address=self.address)
             except OSError as exc:
                 # while stress testing HAProxy and querying for all frontend
                 # metrics I sometimes get:
                 # OSError: [Errno 106] Transport endpoint is already connected
                 # catch this one only and reraise it withour exception
                 if exc.errno == errno.EISCONN:
-                    raised = SocketTransportError(socket_file=self.socket_file)
+                    raised = SocketTransportError(address=self.address)
                 elif exc.errno == errno.ECONNREFUSED:
-                    raised = SocketConnectionError(self.socket_file)
+                    raised = SocketConnectionError(self.address)
                 else:
                     # for the rest of OSError exceptions just reraise them
                     raised = exc
@@ -111,7 +118,7 @@ class _HAProxyProcess(object):
                 # get out from the retry loop
                 break
             finally:
-                unix_socket.close()
+                sock.close()
                 if raised:
                     time.sleep(self.retry_interval)
 
@@ -126,7 +133,7 @@ class _HAProxyProcess(object):
                 return data[0]
         else:
             raise ValueError("no data returned from socket {}".format(
-                self.socket_file))
+                self.address))
 
     def proc_info(self):
         """Return a dictionary containing information about HAProxy daemon.

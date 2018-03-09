@@ -64,12 +64,12 @@ class IncosistentData(HAProxyDataError):
 class HAProxySocketError(HAProxyBaseError):
     """Base SocketError class.
 
-    :param socket_file: socket file.
-    :type socket_file: ``string``
+    :param address: socket address or path.
+    :type address: ``string``
     """
-    def __init__(self, socket_file):
-        self.socket_file = socket_file
-        self.message = self.message + ' ' + self.socket_file
+    def __init__(self, address):
+        self.address = address
+        self.message = self.message + ' ' + self.address
         super(HAProxySocketError, self).__init__(self.message)
 
 
